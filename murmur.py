@@ -1,0 +1,174 @@
+import sys
+import json
+import os
+import objc
+from datetime import datetime
+from Cocoa import (
+    NSApplication, NSApp, NSObject,
+    NSWindow, NSScrollView, NSTextView, NSTextField,
+    NSButton, NSPopUpButton, NSSplitView, NSView, NSTableView, NSTableColumn,
+    NSMakeRect, NSFont, NSApplicationActivationPolicyRegular, NSTableViewSelectionHighlightStyleRegular,
+    NSWindowStyleMaskTitled, NSWindowStyleMaskClosable, NSWindowStyleMaskResizable,
+    NSBackingStoreBuffered
+)
+
+from backend import ChatService
+
+print("Murmur: starting")
+
+class HistoryDataSource(NSObject):
+    def initWithHistory_(self, history):
+        self = objc.super(HistoryDataSource, self).init()
+        self.history = history
+        return self
+
+    def numberOfRowsInTableView_(self, table):
+        return len(self.history)
+
+    def tableView_objectValueForTableColumn_row_(self, table, column, row):
+        column_id = column.identifier()
+        if column_id == "prompt":
+            return self.history[row]["prompt"]
+        elif column_id == "timestamp":
+            iso = self.history[row].get("timestamp", "")
+            return iso[11:16] if iso else ""
+
+HISTORY_PATH = os.path.expanduser("~/Library/Application Support/Murmur/chat_history.json")
+
+class MurmurAppDelegate(NSObject):
+    def applicationDidFinishLaunching_(self, notification):
+        print("Murmur: applicationDidFinishLaunching_ started")
+        print("Murmur: creating window...")
+        self.chat_service = ChatService("openai")
+        self.history = []
+
+        rect = NSMakeRect(100.0, 100.0, 800.0, 600.0)
+        style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+        self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            rect,
+            style,
+            NSBackingStoreBuffered,
+            False
+        )
+        self.window.setTitle_("Murmur - Universal AI Chat Client")
+
+        self.split_view = NSSplitView.alloc().initWithFrame_(NSMakeRect(0, 0, 800, 600))
+        self.split_view.setDividerStyle_(1)
+        self.split_view.setVertical_(True)
+
+        # Left pane: Chat history table
+        self.left_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 300, 600))
+        self.left_view.setTranslatesAutoresizingMaskIntoConstraints_(True)
+
+        scroll_view = NSScrollView.alloc().initWithFrame_(NSMakeRect(0, 0, 300, 600))
+        self.history_table = NSTableView.alloc().initWithFrame_(NSMakeRect(0, 0, 300, 600))
+        column_prompt = NSTableColumn.alloc().initWithIdentifier_("prompt")
+        column_prompt.setWidth_(180)
+        column_prompt.headerCell().setStringValue_("Prompt")
+
+        column_time = NSTableColumn.alloc().initWithIdentifier_("timestamp")
+        column_time.setWidth_(100)
+        column_time.headerCell().setStringValue_("Time")
+
+        self.history_table.addTableColumn_(column_prompt)
+        self.history_table.addTableColumn_(column_time)
+        self.history_table.setDelegate_(self)
+        self.history_data_source = HistoryDataSource.alloc().initWithHistory_(self.history)
+        self.history_table.setDataSource_(self.history_data_source)
+        self.history_table.setSelectionHighlightStyle_(NSTableViewSelectionHighlightStyleRegular)
+
+        scroll_view.setDocumentView_(self.history_table)
+        scroll_view.setHasVerticalScroller_(True)
+        self.left_view.addSubview_(scroll_view)
+        self.split_view.addSubview_(self.left_view)
+
+        # Right pane: Chat interaction
+        self.right_view = NSView.alloc().initWithFrame_(NSMakeRect(200, 0, 600, 600))
+        self.right_view.setTranslatesAutoresizingMaskIntoConstraints_(True)
+
+        self.output_text = NSTextView.alloc().initWithFrame_(NSMakeRect(10, 260, 580, 320))
+        self.output_text.setEditable_(False)
+        self.output_text.setFont_(NSFont.systemFontOfSize_(13))
+
+        output_scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(10, 260, 580, 320))
+        output_scroll.setDocumentView_(self.output_text)
+        output_scroll.setHasVerticalScroller_(True)
+        self.right_view.addSubview_(output_scroll)
+
+        self.input_field = NSTextField.alloc().initWithFrame_(NSMakeRect(10, 200, 580, 50))
+        self.right_view.addSubview_(self.input_field)
+
+        self.provider_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(10, 160, 200, 30))
+        self.provider_popup.addItemsWithTitles_(["openai", "claude", "gemini"])
+        self.provider_popup.setTarget_(self)
+        self.provider_popup.setAction_("providerChanged:")
+        self.right_view.addSubview_(self.provider_popup)
+
+        self.send_button = NSButton.alloc().initWithFrame_(NSMakeRect(480, 160, 110, 30))
+        self.send_button.setTitle_("Send")
+        self.send_button.setTarget_(self)
+        self.send_button.setAction_("sendClicked:")
+        self.right_view.addSubview_(self.send_button)
+
+        self.split_view.addSubview_(self.right_view)
+
+        print("Murmur: adding content view...")
+        self.window.setContentView_(self.split_view)
+        self.window.makeKeyAndOrderFront_(None)
+        NSApp.activateIgnoringOtherApps_(True)
+
+        try:
+            self.load_history()
+            print("Murmur: history loaded")
+        except Exception as e:
+            print(f"Murmur: failed to load history - {e}")
+
+    def providerChanged_(self, sender):
+        selected = sender.titleOfSelectedItem()
+        self.chat_service = ChatService(selected)
+
+    def sendClicked_(self, sender):
+        prompt = self.input_field.stringValue()
+        if not prompt:
+            return
+        response = self.chat_service.chat(prompt)
+        existing = self.output_text.string()
+        new_content = f"{existing}\nYou: {prompt}\nMurmur: {response}\n"
+        self.output_text.setString_(new_content)
+        self.input_field.setStringValue_("")
+
+        self.history.append({"prompt": prompt, "response": response, "timestamp": datetime.now().isoformat()})
+        self.history_data_source = HistoryDataSource.alloc().initWithHistory_(self.history)
+        self.history_table.setDataSource_(self.history_data_source)
+        self.history_table.reloadData()
+        self.save_history()
+
+    def save_history(self):
+        os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
+        with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+            json.dump(self.history, f)
+
+    def load_history(self):
+        if os.path.exists(HISTORY_PATH):
+            with open(HISTORY_PATH, "r", encoding="utf-8") as f:
+                self.history = json.load(f)
+        else:
+            self.history = []
+
+        self.history_data_source = HistoryDataSource.alloc().initWithHistory_(self.history)
+        self.history_table.setDataSource_(self.history_data_source)
+        self.history_table.reloadData()
+
+    def tableViewSelectionDidChange_(self, notification):
+        row = self.history_table.selectedRow()
+        if 0 <= row < len(self.history):
+            item = self.history[row]
+            display = f"You: {item['prompt']}\nMurmur: {item['response']}\n"
+            self.output_text.setString_(display)
+
+if __name__ == "__main__":
+    app = NSApplication.sharedApplication()
+    app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    delegate = MurmurAppDelegate.alloc().init()
+    app.setDelegate_(delegate)
+    app.run()
