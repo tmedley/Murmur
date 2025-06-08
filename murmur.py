@@ -1,3 +1,12 @@
+# murmur.py
+#
+# Murmur
+# a universal AI chat app for macOS
+# Tim Medley tim@medley.us
+#
+
+
+
 import sys
 import json
 import os
@@ -8,12 +17,14 @@ from Cocoa import (
     NSWindow, NSScrollView, NSTextView, NSTextField,
     NSButton, NSPopUpButton, NSSplitView, NSView, NSTableView, NSTableColumn,
     NSMenu, NSMenuItem,
+    NSSecureTextField,
     NSMakeRect, NSFont, NSApplicationActivationPolicyRegular, NSTableViewSelectionHighlightStyleRegular,
     NSWindowStyleMaskTitled, NSWindowStyleMaskClosable, NSWindowStyleMaskResizable,
     NSBackingStoreBuffered
 )
 
 from backend import ChatService
+from preferences import SettingsWindow, load_preferences, save_preferences
 
 print("Murmur: starting")
 
@@ -21,50 +32,8 @@ NSLayoutConstraintPriorityRequired = 1000.0
 
 PREFERENCES_PATH = os.path.expanduser("~/Library/Application Support/Murmur/preferences.json")
 
-def load_preferences():
-    if os.path.exists(PREFERENCES_PATH):
-        with open(PREFERENCES_PATH, "r") as f:
-            return json.load(f)
-    return {}
 
-def save_preferences(prefs):
-    os.makedirs(os.path.dirname(PREFERENCES_PATH), exist_ok=True)
-    with open(PREFERENCES_PATH, "w") as f:
-        json.dump(prefs, f)
 
-class SettingsWindow(NSWindow):
-    def initWithAppDelegate_(self, app_delegate):
-        self = objc.super(SettingsWindow, self).initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, 300, 100),
-            NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
-            NSBackingStoreBuffered,
-            False
-        )
-        if self is None:
-            return None
-
-        self.setTitle_("Settings")
-        self.setReleasedWhenClosed_(False)
-        self.app_delegate = app_delegate
-
-        self.mode_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(20, 40, 200, 26))
-        self.mode_popup.addItemsWithTitles_(["System Default", "Light Mode", "Dark Mode"])
-        self.mode_popup.setTarget_(self)
-        self.mode_popup.setAction_("appearanceModeChanged:")
-        self.contentView().addSubview_(self.mode_popup)
-
-        prefs = load_preferences()
-        selected = prefs.get("appearance", "System Default")
-        self.mode_popup.selectItemWithTitle_(selected)
-
-        return self
-
-    def appearanceModeChanged_(self, sender):
-        mode = sender.titleOfSelectedItem()
-        prefs = load_preferences()
-        prefs["appearance"] = mode
-        save_preferences(prefs)
-        self.app_delegate.apply_appearance(mode)
 
 class LockedSplitView(NSSplitView):
     def isSubviewCollapsed_(self, subview):
@@ -85,6 +54,7 @@ class LockedSplitView(NSSplitView):
     def constrainSplitPosition_ofSubviewAt_(self, proposedPosition, dividerIndex):
         return 300.0
 
+
 class HistoryDataSource(NSObject):
     def initWithHistory_(self, history):
         self = objc.super(HistoryDataSource, self).init()
@@ -102,7 +72,9 @@ class HistoryDataSource(NSObject):
             iso = self.history[row].get("timestamp", "")
             return iso[11:16] if iso else ""
 
+
 HISTORY_PATH = os.path.expanduser("~/Library/Application Support/Murmur/chat_history.json")
+
 
 class MurmurAppDelegate(NSObject):
     def applicationDidFinishLaunching_(self, notification):
@@ -111,10 +83,10 @@ class MurmurAppDelegate(NSObject):
         self.chat_service = ChatService("openai")
         self.history = []
 
-        prefs = load_preferences()
-        self.apply_appearance(prefs.get("appearance", "System Default"))
+        self.settings_window = SettingsWindow.alloc().init()
+        
 
-        self.settings_window = SettingsWindow.alloc().initWithAppDelegate_(self)
+        self.apply_theme()
 
         rect = NSMakeRect(100.0, 100.0, 900.0, 600.0)
         style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
@@ -125,6 +97,7 @@ class MurmurAppDelegate(NSObject):
             False
         )
         self.window.setTitle_("Murmur - Universal AI Chat Client")
+        self.window.setDelegate_(self)
 
         self.create_main_menu()
 
@@ -203,6 +176,19 @@ class MurmurAppDelegate(NSObject):
         except Exception as e:
             print(f"Murmur: failed to load history - {e}")
 
+    def windowWillClose_(self, notification):
+        NSApp.terminate_(self)
+
+    def apply_theme(self):
+        prefs = load_preferences()
+        theme = prefs.get("theme", "system")
+        if theme == "dark":
+            NSApp.setAppearance_(objc.lookUpClass("NSAppearance").appearanceNamed_("NSAppearanceNameDarkAqua"))
+        elif theme == "light":
+            NSApp.setAppearance_(objc.lookUpClass("NSAppearance").appearanceNamed_("NSAppearanceNameAqua"))
+        else:
+            NSApp.setAppearance_(None)
+
     def create_main_menu(self):
         main_menu = NSMenu.alloc().init()
         app_menu_item = NSMenuItem.alloc().init()
@@ -219,19 +205,11 @@ class MurmurAppDelegate(NSObject):
 
     def openSettings_(self, sender):
         main_frame = self.window.frame()
-        x = main_frame.origin.x + (main_frame.size.width - 300) / 2
-        y = main_frame.origin.y + (main_frame.size.height - 100) / 2
+        settings_frame = self.settings_window.frame()
+        x = main_frame.origin.x + (main_frame.size.width - settings_frame.size.width) / 2
+        y = main_frame.origin.y + (main_frame.size.height - settings_frame.size.height) / 2
         self.settings_window.setFrameOrigin_((x, y))
         self.settings_window.makeKeyAndOrderFront_(None)
-
-    def apply_appearance(self, mode):
-        NSAppearance = objc.lookUpClass("NSAppearance")
-        if mode == "Dark Mode":
-            NSApp.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua"))
-        elif mode == "Light Mode":
-            NSApp.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameAqua"))
-        else:
-            NSApp.setAppearance_(None)
 
     def providerChanged_(self, sender):
         selected = sender.titleOfSelectedItem()
@@ -275,6 +253,8 @@ class MurmurAppDelegate(NSObject):
             item = self.history[row]
             display = f"You: {item['prompt']}\nMurmur: {item['response']}\n"
             self.output_text.setString_(display)
+
+
 
 if __name__ == "__main__":
     app = NSApplication.sharedApplication()
