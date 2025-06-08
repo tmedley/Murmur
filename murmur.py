@@ -9,9 +9,7 @@ from Cocoa import (
     NSButton, NSPopUpButton, NSSplitView, NSView, NSTableView, NSTableColumn,
     NSMakeRect, NSFont, NSApplicationActivationPolicyRegular, NSTableViewSelectionHighlightStyleRegular,
     NSWindowStyleMaskTitled, NSWindowStyleMaskClosable, NSWindowStyleMaskResizable,
-    NSBackingStoreBuffered, NSLayoutConstraint, NSLayoutAttributeTop, NSLayoutAttributeBottom,
-    NSLayoutAttributeLeft, NSLayoutAttributeRight, NSLayoutAttributeWidth, NSLayoutAttributeHeight,
-    NSLayoutRelationEqual, NSLayoutConstraintOrientationVertical
+    NSBackingStoreBuffered, NSColor
 )
 
 from backend import ChatService
@@ -19,6 +17,13 @@ from backend import ChatService
 NSLayoutConstraintPriorityRequired = 1000.0
 
 print("Murmur: starting")
+
+def is_dark_mode():
+    appearance = NSApp.effectiveAppearance()
+    best = appearance.bestMatchFromAppearancesWithNames_([
+        "NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"
+    ])
+    return best == "NSAppearanceNameDarkAqua"
 
 class LockedSplitView(NSSplitView):
     def isSubviewCollapsed_(self, subview):
@@ -28,22 +33,16 @@ class LockedSplitView(NSSplitView):
         return False
 
     def isDividerHidden(self):
-        return False
+        return True
+
+    def drawDividerInRect_(self, rect):
+        pass
 
     def dividerThickness(self):
-        return 1.0
+        return 0.5
 
     def constrainSplitPosition_ofSubviewAt_(self, proposedPosition, dividerIndex):
         return 300.0
-
-    def acceptsFirstMouse_(self, event):
-        return False
-
-    def mouseDown_(self, event):
-        pass
-
-    def mouseDragged_(self, event):
-        pass
 
 class HistoryDataSource(NSObject):
     def initWithHistory_(self, history):
@@ -81,17 +80,16 @@ class MurmurAppDelegate(NSObject):
         )
         self.window.setTitle_("Murmur - Universal AI Chat Client")
 
-        self.split_view = LockedSplitView.alloc().initWithFrame_(NSMakeRect(0, 0, 900, 600))
+        self.split_view = LockedSplitView.alloc().initWithFrame_(NSMakeRect(0, 0, 800, 600))
         self.split_view.setDividerStyle_(3)
         self.split_view.setVertical_(True)
-        self.split_view.setAutoresizingMask_(1 << 1 | 1 << 3)  # Width & height resizing
 
-        # Left pane: Chat history table
-        self.left_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 300, 600))
-        self.left_view.setAutoresizingMask_(1 << 1 | 1 << 3)
+        self.left_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 310, 600))
+        self.left_view.setTranslatesAutoresizingMaskIntoConstraints_(True)
 
         scroll_view = NSScrollView.alloc().initWithFrame_(self.left_view.bounds())
         scroll_view.setAutoresizingMask_(1 << 1 | 1 << 3)
+
         self.history_table = NSTableView.alloc().initWithFrame_(self.left_view.bounds())
 
         column_prompt = NSTableColumn.alloc().initWithIdentifier_("prompt")
@@ -113,20 +111,12 @@ class MurmurAppDelegate(NSObject):
         self.history_table.headerView().setAutoresizingMask_(0)
 
         scroll_view.setDocumentView_(self.history_table)
-        #scroll_view.setHasVerticalScroller_(True)
-
         scroll_view.setHasVerticalScroller_(False)
-        scroll_view.setAutohidesScrollers_(True)
-        scroll_view.setBorderType_(0)  # Removes any visible frame
-        self.history_table.setFrame_(scroll_view.contentView().frame())
-        self.history_table.setAutoresizingMask_(1 << 1 | 1 << 3)  # width + height resizable
-
         self.left_view.addSubview_(scroll_view)
         self.split_view.addSubview_(self.left_view)
 
-        # Right pane: Chat interaction
-        self.right_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 600, 600))
-        self.right_view.setAutoresizingMask_(1 << 1 | 1 << 3)
+        self.right_view = NSView.alloc().initWithFrame_(NSMakeRect(200, 0, 600, 600))
+        self.right_view.setTranslatesAutoresizingMaskIntoConstraints_(True)
 
         self.output_text = NSTextView.alloc().initWithFrame_(NSMakeRect(10, 260, 580, 320))
         self.output_text.setEditable_(False)
@@ -135,11 +125,9 @@ class MurmurAppDelegate(NSObject):
         output_scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(10, 260, 580, 320))
         output_scroll.setDocumentView_(self.output_text)
         output_scroll.setHasVerticalScroller_(True)
-        output_scroll.setAutoresizingMask_(1 << 1 | 1 << 3)
         self.right_view.addSubview_(output_scroll)
 
         self.input_field = NSTextField.alloc().initWithFrame_(NSMakeRect(10, 200, 580, 50))
-        self.input_field.setAutoresizingMask_(1 << 1 | 1 << 3)
         self.right_view.addSubview_(self.input_field)
 
         self.provider_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(10, 160, 200, 30))
@@ -152,13 +140,25 @@ class MurmurAppDelegate(NSObject):
         self.send_button.setTitle_("Send")
         self.send_button.setTarget_(self)
         self.send_button.setAction_("sendClicked:")
-        self.send_button.setAutoresizingMask_(1 << 1 | 1 << 3)
         self.right_view.addSubview_(self.send_button)
 
         self.split_view.addSubview_(self.right_view)
 
         print("Murmur: adding content view...")
         self.window.setContentView_(self.split_view)
+
+        dark = is_dark_mode()
+        bg_color = NSColor.blackColor() if dark else NSColor.whiteColor()
+        text_color = NSColor.whiteColor() if dark else NSColor.blackColor()
+
+        self.output_text.setBackgroundColor_(bg_color)
+        self.output_text.setTextColor_(text_color)
+
+        self.input_field.setBackgroundColor_(bg_color)
+        self.input_field.setTextColor_(text_color)
+
+        self.history_table.setBackgroundColor_(bg_color)
+
         self.window.makeKeyAndOrderFront_(None)
         NSApp.activateIgnoringOtherApps_(True)
 
