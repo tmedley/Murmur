@@ -1,12 +1,3 @@
-# murmur.py
-#
-# Murmur
-# a universal AI chat app for macOS
-# Tim Medley tim@medley.us
-#
-
-
-
 import sys
 import json
 import os
@@ -16,43 +7,19 @@ from Cocoa import (
     NSApplication, NSApp, NSObject,
     NSWindow, NSScrollView, NSTextView, NSTextField,
     NSButton, NSPopUpButton, NSSplitView, NSView, NSTableView, NSTableColumn,
-    NSMenu, NSMenuItem,
-    NSSecureTextField,
+    NSMenu, NSMenuItem, NSImage, NSImageView, NSBundle, NSSecureTextField,
     NSMakeRect, NSFont, NSApplicationActivationPolicyRegular, NSTableViewSelectionHighlightStyleRegular,
     NSWindowStyleMaskTitled, NSWindowStyleMaskClosable, NSWindowStyleMaskResizable,
     NSBackingStoreBuffered
 )
 
 from backend import ChatService
-from preferences import SettingsWindow, load_preferences, save_preferences
+from preferences import SettingsWindow, load_preferences, show_about_panel
 
 print("Murmur: starting")
 
 NSLayoutConstraintPriorityRequired = 1000.0
-
-PREFERENCES_PATH = os.path.expanduser("~/Library/Application Support/Murmur/preferences.json")
-
-
-
-
-class LockedSplitView(NSSplitView):
-    def isSubviewCollapsed_(self, subview):
-        return False
-
-    def canCollapseSubview_(self, subview):
-        return False
-
-    def isDividerHidden(self):
-        return True
-
-    def drawDividerInRect_(self, rect):
-        pass
-
-    def dividerThickness(self):
-        return 0.5
-
-    def constrainSplitPosition_ofSubviewAt_(self, proposedPosition, dividerIndex):
-        return 300.0
+HISTORY_PATH = os.path.expanduser("~/Library/Application Support/Murmur/chat_history.json")
 
 
 class HistoryDataSource(NSObject):
@@ -72,10 +39,6 @@ class HistoryDataSource(NSObject):
             iso = self.history[row].get("timestamp", "")
             return iso[11:16] if iso else ""
 
-
-HISTORY_PATH = os.path.expanduser("~/Library/Application Support/Murmur/chat_history.json")
-
-
 class MurmurAppDelegate(NSObject):
     def applicationDidFinishLaunching_(self, notification):
         print("Murmur: applicationDidFinishLaunching_ started")
@@ -83,10 +46,14 @@ class MurmurAppDelegate(NSObject):
         self.chat_service = ChatService("openai")
         self.history = []
 
-        self.settings_window = SettingsWindow.alloc().init()
-        
+        prefs = load_preferences()
+        theme = prefs.get("theme", "system")
+        if theme == "dark":
+            NSApp.setAppearance_(objc.lookUpClass("NSAppearance").appearanceNamed_("NSAppearanceNameDarkAqua"))
+        elif theme == "light":
+            NSApp.setAppearance_(objc.lookUpClass("NSAppearance").appearanceNamed_("NSAppearanceNameAqua"))
 
-        self.apply_theme()
+        self.settings_window = SettingsWindow.alloc().init()
 
         rect = NSMakeRect(100.0, 100.0, 900.0, 600.0)
         style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
@@ -101,7 +68,7 @@ class MurmurAppDelegate(NSObject):
 
         self.create_main_menu()
 
-        self.split_view = LockedSplitView.alloc().initWithFrame_(NSMakeRect(0, 0, 800, 600))
+        self.split_view = NSSplitView.alloc().initWithFrame_(NSMakeRect(0, 0, 800, 600))
         self.split_view.setDividerStyle_(3)
         self.split_view.setVertical_(True)
 
@@ -139,25 +106,37 @@ class MurmurAppDelegate(NSObject):
         self.right_view = NSView.alloc().initWithFrame_(NSMakeRect(200, 0, 600, 600))
         self.right_view.setTranslatesAutoresizingMaskIntoConstraints_(True)
 
-        self.output_text = NSTextView.alloc().initWithFrame_(NSMakeRect(10, 260, 580, 320))
-        self.output_text.setEditable_(False)
-        self.output_text.setFont_(NSFont.systemFontOfSize_(13))
 
-        output_scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(10, 260, 580, 320))
-        output_scroll.setDocumentView_(self.output_text)
-        output_scroll.setHasVerticalScroller_(True)
-        self.right_view.addSubview_(output_scroll)
+        # Label to the left of provider dropdown
+        self.provider_label = NSTextField.alloc().initWithFrame_(NSMakeRect(10, 536, 80, 24))
+        self.provider_label.setStringValue_("AI Provider:")
+        self.provider_label.setBezeled_(False)
+        self.provider_label.setDrawsBackground_(False)
+        self.provider_label.setEditable_(False)
+        self.provider_label.setSelectable_(False)
+        self.provider_label.setFont_(NSFont.systemFontOfSize_(13))
+        self.right_view.addSubview_(self.provider_label)
 
-        self.input_field = NSTextField.alloc().initWithFrame_(NSMakeRect(10, 200, 580, 50))
-        self.right_view.addSubview_(self.input_field)
-
-        self.provider_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(10, 160, 200, 30))
-        self.provider_popup.addItemsWithTitles_(["openai", "claude", "gemini"])
+        # Dropdown next to label
+        self.provider_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(100, 536, 150, 28))
+        self.provider_popup.addItemsWithTitles_(["OpenAI", "Claude", "Gemini"])
         self.provider_popup.setTarget_(self)
         self.provider_popup.setAction_("providerChanged:")
         self.right_view.addSubview_(self.provider_popup)
 
-        self.send_button = NSButton.alloc().initWithFrame_(NSMakeRect(480, 160, 110, 30))
+        self.output_text = NSTextView.alloc().initWithFrame_(NSMakeRect(10, 200, 580, 320))
+        self.output_text.setEditable_(False)
+        self.output_text.setFont_(NSFont.systemFontOfSize_(13))
+
+        output_scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(10, 220, 580, 300))
+        output_scroll.setDocumentView_(self.output_text)
+        output_scroll.setHasVerticalScroller_(True)
+        self.right_view.addSubview_(output_scroll)
+
+        self.input_field = NSTextField.alloc().initWithFrame_(NSMakeRect(10, 140, 565, 80))
+        self.right_view.addSubview_(self.input_field)
+
+        self.send_button = NSButton.alloc().initWithFrame_(NSMakeRect(480, 100, 110, 30))
         self.send_button.setTitle_("Send")
         self.send_button.setTarget_(self)
         self.send_button.setAction_("sendClicked:")
@@ -176,19 +155,6 @@ class MurmurAppDelegate(NSObject):
         except Exception as e:
             print(f"Murmur: failed to load history - {e}")
 
-    def windowWillClose_(self, notification):
-        NSApp.terminate_(self)
-
-    def apply_theme(self):
-        prefs = load_preferences()
-        theme = prefs.get("theme", "system")
-        if theme == "dark":
-            NSApp.setAppearance_(objc.lookUpClass("NSAppearance").appearanceNamed_("NSAppearanceNameDarkAqua"))
-        elif theme == "light":
-            NSApp.setAppearance_(objc.lookUpClass("NSAppearance").appearanceNamed_("NSAppearanceNameAqua"))
-        else:
-            NSApp.setAppearance_(None)
-
     def create_main_menu(self):
         main_menu = NSMenu.alloc().init()
         app_menu_item = NSMenuItem.alloc().init()
@@ -196,12 +162,29 @@ class MurmurAppDelegate(NSObject):
         NSApp.setMainMenu_(main_menu)
 
         app_menu = NSMenu.alloc().init()
+
+        about_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "About Murmur", "openAbout:", ""
+        )
+        about_item.setTarget_(self)
+        app_menu.addItem_(about_item)
+
         settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Settings...", "openSettings:", "",
         )
         settings_item.setTarget_(self)
         app_menu.addItem_(settings_item)
+
         app_menu_item.setSubmenu_(app_menu)
+
+        NSApp.setApplicationIconImage_(NSImage.imageNamed_("logo"))
+        info_dict = NSBundle.mainBundle().infoDictionary()
+        info_dict["CFBundleName"] = "Murmur"
+        info_dict["NSHumanReadableCopyright"] = "A Universal AI Chat Client\n\nCopyright © 2025 Tim Medley\ntim@medley.us"
+        info_dict["CFBundleShortVersionString"] = "1.0"
+
+    def openAbout_(self, sender):
+        show_about_panel()
 
     def openSettings_(self, sender):
         main_frame = self.window.frame()
@@ -254,11 +237,19 @@ class MurmurAppDelegate(NSObject):
             display = f"You: {item['prompt']}\nMurmur: {item['response']}\n"
             self.output_text.setString_(display)
 
-
+    def windowWillClose_(self, notification):
+        if notification.object() == self.window:
+            NSApp.terminate_(self)
 
 if __name__ == "__main__":
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+
+    # Add your icon-setting code **after** NSApplication is initialized
+    icon = NSImage.alloc().initWithContentsOfFile_("/full/path/to/MyIcon.icns")
+    if icon:
+        NSApp.setApplicationIconImage_(icon)
+
     delegate = MurmurAppDelegate.alloc().init()
     app.setDelegate_(delegate)
     app.run()

@@ -12,13 +12,20 @@ import json
 import objc
 from Cocoa import (
     NSWindow, NSTextField, NSSecureTextField, NSPopUpButton, NSButton, NSMakeRect,
-    NSWindowStyleMaskTitled, NSWindowStyleMaskClosable, NSBackingStoreBuffered
+    NSWindowStyleMaskTitled, NSWindowStyleMaskClosable, NSBackingStoreBuffered,
+    NSObject, NSImageView, NSView, NSFont, NSImage, NSApplication, NSBundle
 )
+
 
 PREFERENCES_PATH = os.path.expanduser("~/Library/Application Support/Murmur/preferences.json")
 
 NSLayoutConstraintPriorityRequired = 1000.0
 
+ABOUT_VERSION = "1.0"
+ABOUT_DESCRIPTION = """A universal AI chat client supporting multiple providers.
+Developed by Tim Medley (tim@medley.us)"""
+
+LOGO_PATH = os.path.expanduser("Resources/logo.png")
 
 def load_preferences():
     if os.path.exists(PREFERENCES_PATH):
@@ -115,3 +122,70 @@ class SettingsWindow(NSWindow):
             NSApp.setAppearance_(None)
 
         self.orderOut_(None)
+
+class AboutWindow(NSWindow):
+    def init(self):
+        self = super().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, 400, 240),
+            NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
+            NSBackingStoreBuffered,
+            False
+        )
+        if self is None:
+            return None
+
+        self.setTitle_("About Murmur")
+
+        content = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 400, 240))
+
+        # Logo (update path to match your actual logo image name and bundle structure)
+        image = NSImage.alloc().initWithContentsOfFile_(
+            os.path.join(os.path.dirname(__file__), "Resources/logo.png")
+        )
+        image_view = NSImageView.alloc().initWithFrame_(NSMakeRect(10, 90, 128, 128))
+        image_view.setImage_(image)
+        content.addSubview_(image_view)
+
+        # App Name
+        name_field = NSTextField.alloc().initWithFrame_(NSMakeRect(150, 180, 280, 24))
+        name_field.setStringValue_("Murmur - Universal AI Chat Client")
+        name_field.setFont_(NSFont.boldSystemFontOfSize_(14))
+        name_field.setBezeled_(False)
+        name_field.setDrawsBackground_(False)
+        name_field.setEditable_(False)
+        name_field.setSelectable_(False)
+        content.addSubview_(name_field)
+
+        # Version
+        version_field = NSTextField.alloc().initWithFrame_(NSMakeRect(150, 150, 280, 20))
+        version_field.setStringValue_("Version 1.0")
+        version_field.setBezeled_(False)
+        version_field.setDrawsBackground_(False)
+        version_field.setEditable_(False)
+        version_field.setSelectable_(False)
+        content.addSubview_(version_field)
+
+        # Copyright
+        copyright_field = NSTextField.alloc().initWithFrame_(NSMakeRect(150, 110, 280, 40))
+        copyright_field.setStringValue_("© 2025 Tim Medley\nAll rights reserved.")
+        copyright_field.setBezeled_(False)
+        copyright_field.setDrawsBackground_(False)
+        copyright_field.setEditable_(False)
+        copyright_field.setSelectable_(False)
+        content.addSubview_(copyright_field)
+
+        self.setContentView_(content)
+        self.center()
+        return self
+    
+
+def closeAboutWindow_(self, sender):
+    self.close()
+
+about_window_instance = None  # Global reference to keep it alive
+
+def show_about_panel():
+    global about_window_instance
+    if about_window_instance is None or not about_window_instance.isVisible():
+        about_window_instance = AboutWindow.alloc().init()
+    about_window_instance.makeKeyAndOrderFront_(None)
