@@ -43,7 +43,7 @@ def save_preferences(prefs):
 class SettingsWindow(NSWindow):
     def init(self):
         self = objc.super(SettingsWindow, self).initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, 700, 250),  # You can tweak size
+            NSMakeRect(0, 0, 700, 300),  # Main window size
             NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
             NSBackingStoreBuffered,
             False
@@ -57,7 +57,7 @@ class SettingsWindow(NSWindow):
         prefs = load_preferences()
 
         # theme drop down
-        self.dark_mode_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, 190, 100, 20))
+        self.dark_mode_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, 220, 100, 20))
         self.dark_mode_label.setStringValue_("Theme")
         self.dark_mode_label.setBezeled_(False)
         self.dark_mode_label.setDrawsBackground_(False)
@@ -65,7 +65,7 @@ class SettingsWindow(NSWindow):
         self.dark_mode_label.setSelectable_(False)
         self.contentView().addSubview_(self.dark_mode_label)
 
-        self.theme_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(130, 185, 200, 26))
+        self.theme_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(130, 215, 200, 26))
         self.theme_popup.addItemsWithTitles_(["System Default", "Light Mode", "Dark Mode"])
         theme_map = {"light": 1, "dark": 2}
         self.theme_popup.selectItemAtIndex_(theme_map.get(prefs.get("theme"), 0))
@@ -76,7 +76,7 @@ class SettingsWindow(NSWindow):
         self.api_fields = {}
         apis = ["OpenAI", "Claude", "Gemini"]
         for i, name in enumerate(apis):
-            y = 140 - (i * 40)
+            y = 160 - (i * 50)
             label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y + 5, 100, 20))
             label.setStringValue_(f"{name} API Key")
             label.setBezeled_(False)
@@ -85,7 +85,7 @@ class SettingsWindow(NSWindow):
             label.setSelectable_(False)
             self.contentView().addSubview_(label)
 
-            field = NSSecureTextField.alloc().initWithFrame_(NSMakeRect(130, y, 540, 24))
+            field = NSSecureTextField.alloc().initWithFrame_(NSMakeRect(130, y, 540, 36))
             field.setStringValue_(prefs.get(f"api_key_{name.lower()}", ""))
             self.contentView().addSubview_(field)
 
@@ -125,8 +125,8 @@ class SettingsWindow(NSWindow):
 
 class AboutWindow(NSWindow):
     def init(self):
-        self = super().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, 400, 240),
+        self = objc.super(AboutWindow, self).initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, 400, 220),
             NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
             NSBackingStoreBuffered,
             False
@@ -135,8 +135,10 @@ class AboutWindow(NSWindow):
             return None
 
         self.setTitle_("About Murmur")
+        self.setReleasedWhenClosed_(False)
+        self.setLevel_(3)  # Above normal windows
 
-        content = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 400, 240))
+        content = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 400, 200))
 
         # Logo (update path to match your actual logo image name and bundle structure)
         image = NSImage.alloc().initWithContentsOfFile_(
@@ -167,7 +169,7 @@ class AboutWindow(NSWindow):
 
         # Copyright
         copyright_field = NSTextField.alloc().initWithFrame_(NSMakeRect(150, 110, 280, 40))
-        copyright_field.setStringValue_("© 2025 Tim Medley\nAll rights reserved.")
+        copyright_field.setStringValue_("© 2025 Tim Medley\nAll rights reserved.\n\ntim@medley.us")
         copyright_field.setBezeled_(False)
         copyright_field.setDrawsBackground_(False)
         copyright_field.setEditable_(False)
@@ -186,6 +188,20 @@ about_window_instance = None  # Global reference to keep it alive
 
 def show_about_panel():
     global about_window_instance
-    if about_window_instance is None or not about_window_instance.isVisible():
+
+    if about_window_instance is None:
         about_window_instance = AboutWindow.alloc().init()
+        about_window_instance.retain()  # Prevent GC
+        about_window_instance.setReleasedWhenClosed_(False)
+
     about_window_instance.makeKeyAndOrderFront_(None)
+
+
+
+def get_api_keys():
+    prefs = load_preferences()
+    return {
+        "openai": prefs.get("openai_api_key", ""),
+        "claude": prefs.get("claude_api_key", ""),
+        "gemini": prefs.get("gemini_api_key", "")
+    }

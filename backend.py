@@ -51,8 +51,9 @@ class GeminiClient(ChatClient):
         return "Gemini response simulation (not implemented)"
 
 class ChatService:
-    def __init__(self, provider: str):
-        self.client = self.get_client(provider)
+    def __init__(self, provider, api_key=""):
+        self.provider = provider
+        self.api_key = api_key
 
     def get_client(self, provider: str) -> ChatClient:
         if provider == "openai":
@@ -64,5 +65,23 @@ class ChatService:
         else:
             raise ValueError("Unsupported provider")
 
-    def chat(self, prompt: str) -> str:
-        return self.client.send_message(prompt)
+    def chat(self, prompt):
+        #print(f"Prompt: {prompt}")
+        #print(f"Provider: {self.provider}, API Key: {self.api_key}")
+        
+        if not self.api_key:
+            return "[No API key provided]"
+
+        if self.provider == "openai":
+            try:
+                client = openai.OpenAI(api_key=self.api_key)
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return response.choices[0].message.content.strip()
+            except Exception as e:
+                print(f"OpenAI error: {e}")
+                return f"[Error from OpenAI: {e}]"
+
+        return f"[{self.provider.upper()}] provider not implemented yet."

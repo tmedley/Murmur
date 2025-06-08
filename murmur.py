@@ -14,7 +14,7 @@ from Cocoa import (
 )
 
 from backend import ChatService
-from preferences import SettingsWindow, load_preferences, show_about_panel
+from preferences import SettingsWindow, load_preferences, show_about_panel, get_api_keys
 
 print("Murmur: starting")
 
@@ -43,10 +43,16 @@ class MurmurAppDelegate(NSObject):
     def applicationDidFinishLaunching_(self, notification):
         print("Murmur: applicationDidFinishLaunching_ started")
         print("Murmur: creating window...")
-        self.chat_service = ChatService("openai")
-        self.history = []
+        
 
         prefs = load_preferences()
+        provider = prefs.get("provider", "openai")
+        api_key = prefs.get(f"api_key_{provider}", "")
+        self.chat_service = ChatService(provider, api_key)  
+        
+        self.history = []
+
+        
         theme = prefs.get("theme", "system")
         if theme == "dark":
             NSApp.setAppearance_(objc.lookUpClass("NSAppearance").appearanceNamed_("NSAppearanceNameDarkAqua"))
@@ -63,7 +69,7 @@ class MurmurAppDelegate(NSObject):
             NSBackingStoreBuffered,
             False
         )
-        self.window.setTitle_("Murmur - Universal AI Chat Client")
+        self.window.setTitle_("Murmur")
         self.window.setDelegate_(self)
 
         self.create_main_menu()
@@ -196,13 +202,30 @@ class MurmurAppDelegate(NSObject):
 
     def providerChanged_(self, sender):
         selected = sender.titleOfSelectedItem()
-        self.chat_service = ChatService(selected)
+        prefs = load_preferences()
+        
+        api_key = ""
+        if selected == "openai":
+            api_key = prefs.get("api_key_openai", "")
+        elif selected == "claude":
+            api_key = prefs.get("api_key_claude", "")
+        elif selected == "gemini":
+            api_key = prefs.get("api_key_gemini", "")
+
+        self.chat_service = ChatService(selected, api_key)
 
     def sendClicked_(self, sender):
         prompt = self.input_field.stringValue()
         if not prompt:
             return
+        
+        #print(f"Prompt: {prompt}")
+        #print(f"Provider: {self.chat_service.provider}, API Key: {self.chat_service.api_key}")
+
+        print("Calling chat with prompt:", prompt)
         response = self.chat_service.chat(prompt)
+        print("Response received:", response)
+
         existing = self.output_text.string()
         new_content = f"{existing}\nYou: {prompt}\nMurmur: {response}\n"
         self.output_text.setString_(new_content)
@@ -246,7 +269,7 @@ if __name__ == "__main__":
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
 
     # Add your icon-setting code **after** NSApplication is initialized
-    icon = NSImage.alloc().initWithContentsOfFile_("/full/path/to/MyIcon.icns")
+    icon = NSImage.alloc().initWithContentsOfFile_("Resources/Murmur.icns")
     if icon:
         NSApp.setApplicationIconImage_(icon)
 
