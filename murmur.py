@@ -7,23 +7,64 @@ from Cocoa import (
     NSApplication, NSApp, NSObject,
     NSWindow, NSScrollView, NSTextView, NSTextField,
     NSButton, NSPopUpButton, NSSplitView, NSView, NSTableView, NSTableColumn,
+    NSMenu, NSMenuItem,
     NSMakeRect, NSFont, NSApplicationActivationPolicyRegular, NSTableViewSelectionHighlightStyleRegular,
     NSWindowStyleMaskTitled, NSWindowStyleMaskClosable, NSWindowStyleMaskResizable,
-    NSBackingStoreBuffered, NSColor
+    NSBackingStoreBuffered
 )
 
 from backend import ChatService
 
-NSLayoutConstraintPriorityRequired = 1000.0
-
 print("Murmur: starting")
 
-def is_dark_mode():
-    appearance = NSApp.effectiveAppearance()
-    best = appearance.bestMatchFromAppearancesWithNames_([
-        "NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"
-    ])
-    return best == "NSAppearanceNameDarkAqua"
+NSLayoutConstraintPriorityRequired = 1000.0
+
+PREFERENCES_PATH = os.path.expanduser("~/Library/Application Support/Murmur/preferences.json")
+
+def load_preferences():
+    if os.path.exists(PREFERENCES_PATH):
+        with open(PREFERENCES_PATH, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_preferences(prefs):
+    os.makedirs(os.path.dirname(PREFERENCES_PATH), exist_ok=True)
+    with open(PREFERENCES_PATH, "w") as f:
+        json.dump(prefs, f)
+
+class SettingsWindow(NSWindow):
+    def initWithAppDelegate_(self, app_delegate):
+        self = objc.super(SettingsWindow, self).initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, 300, 100),
+            NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
+            NSBackingStoreBuffered,
+            False
+        )
+        if self is None:
+            return None
+
+        self.setTitle_("Settings")
+        self.setReleasedWhenClosed_(False)
+        self.app_delegate = app_delegate
+
+        self.mode_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(20, 40, 200, 26))
+        self.mode_popup.addItemsWithTitles_(["System Default", "Light Mode", "Dark Mode"])
+        self.mode_popup.setTarget_(self)
+        self.mode_popup.setAction_("appearanceModeChanged:")
+        self.contentView().addSubview_(self.mode_popup)
+
+        prefs = load_preferences()
+        selected = prefs.get("appearance", "System Default")
+        self.mode_popup.selectItemWithTitle_(selected)
+
+        return self
+
+    def appearanceModeChanged_(self, sender):
+        mode = sender.titleOfSelectedItem()
+        prefs = load_preferences()
+        prefs["appearance"] = mode
+        save_preferences(prefs)
+        self.app_delegate.apply_appearance(mode)
 
 class LockedSplitView(NSSplitView):
     def isSubviewCollapsed_(self, subview):
@@ -70,6 +111,11 @@ class MurmurAppDelegate(NSObject):
         self.chat_service = ChatService("openai")
         self.history = []
 
+        prefs = load_preferences()
+        self.apply_appearance(prefs.get("appearance", "System Default"))
+
+        self.settings_window = SettingsWindow.alloc().initWithAppDelegate_(self)
+
         rect = NSMakeRect(100.0, 100.0, 900.0, 600.0)
         style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
         self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
@@ -79,6 +125,8 @@ class MurmurAppDelegate(NSObject):
             False
         )
         self.window.setTitle_("Murmur - Universal AI Chat Client")
+
+        self.create_main_menu()
 
         self.split_view = LockedSplitView.alloc().initWithFrame_(NSMakeRect(0, 0, 800, 600))
         self.split_view.setDividerStyle_(3)
@@ -146,19 +194,6 @@ class MurmurAppDelegate(NSObject):
 
         print("Murmur: adding content view...")
         self.window.setContentView_(self.split_view)
-
-        dark = is_dark_mode()
-        bg_color = NSColor.blackColor() if dark else NSColor.whiteColor()
-        text_color = NSColor.whiteColor() if dark else NSColor.blackColor()
-
-        self.output_text.setBackgroundColor_(bg_color)
-        self.output_text.setTextColor_(text_color)
-
-        self.input_field.setBackgroundColor_(bg_color)
-        self.input_field.setTextColor_(text_color)
-
-        self.history_table.setBackgroundColor_(bg_color)
-
         self.window.makeKeyAndOrderFront_(None)
         NSApp.activateIgnoringOtherApps_(True)
 
@@ -167,6 +202,36 @@ class MurmurAppDelegate(NSObject):
             print("Murmur: history loaded")
         except Exception as e:
             print(f"Murmur: failed to load history - {e}")
+
+    def create_main_menu(self):
+        main_menu = NSMenu.alloc().init()
+        app_menu_item = NSMenuItem.alloc().init()
+        main_menu.addItem_(app_menu_item)
+        NSApp.setMainMenu_(main_menu)
+
+        app_menu = NSMenu.alloc().init()
+        settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Settings...", "openSettings:", "",
+        )
+        settings_item.setTarget_(self)
+        app_menu.addItem_(settings_item)
+        app_menu_item.setSubmenu_(app_menu)
+
+    def openSettings_(self, sender):
+        main_frame = self.window.frame()
+        x = main_frame.origin.x + (main_frame.size.width - 300) / 2
+        y = main_frame.origin.y + (main_frame.size.height - 100) / 2
+        self.settings_window.setFrameOrigin_((x, y))
+        self.settings_window.makeKeyAndOrderFront_(None)
+
+    def apply_appearance(self, mode):
+        NSAppearance = objc.lookUpClass("NSAppearance")
+        if mode == "Dark Mode":
+            NSApp.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua"))
+        elif mode == "Light Mode":
+            NSApp.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameAqua"))
+        else:
+            NSApp.setAppearance_(None)
 
     def providerChanged_(self, sender):
         selected = sender.titleOfSelectedItem()
