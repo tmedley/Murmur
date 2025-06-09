@@ -4,6 +4,7 @@
 # a universal AI chat app for macOS
 # Tim Medley tim@medley.us
 #
+# Settings and About Menu
 
 
 
