@@ -12,3 +12,6 @@
 
 # Ignore venv files
 .venv
+
+# Ignore Old Folder
+Old/
